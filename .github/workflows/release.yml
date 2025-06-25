@@ -1,0 +1,337 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Define all the platforms we want to build for
+        include:
+          - goos: linux
+            goarch: amd64
+            name: linux-amd64
+          - goos: linux
+            goarch: arm64
+            name: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            name: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            name: darwin-arm64
+          - goos: windows
+            goarch: amd64
+            name: windows-amd64
+            extension: .exe
+          - goos: freebsd
+            goarch: amd64
+            name: freebsd-amd64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: |
+        go mod download
+        go mod tidy
+
+    - name: Get version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Building version: ${VERSION}"
+
+    - name: Build binary
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: 0
+      run: |
+        VERSION=${{ steps.version.outputs.VERSION }}
+        COMMIT=${GITHUB_SHA::8}
+        DATE=$(date -u '+%Y-%m-%d_%H:%M:%S')
+        
+        LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
+        BINARY_NAME="valhalla-${VERSION}-${{ matrix.name }}${{ matrix.extension }}"
+        
+        echo "Building ${BINARY_NAME}..."
+        go build -ldflags="${LDFLAGS}" -o "dist/${BINARY_NAME}" .
+        
+        # Create checksum
+        cd dist
+        sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: valhalla-${{ matrix.name }}
+        path: |
+          dist/valhalla-*-${{ matrix.name }}*
+        retention-days: 5
+
+  test:
+    name: Test Build
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run tests
+      run: |
+        go test -v ./...
+
+    - name: Download Linux AMD64 artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: valhalla-linux-amd64
+        path: ./test-binary/
+
+    - name: Test binary functionality
+      run: |
+        cd test-binary
+        chmod +x valhalla-*-linux-amd64
+        ./valhalla-*-linux-amd64 --version
+        ./valhalla-*-linux-amd64 --help
+        ./valhalla-*-linux-amd64 discover --provider vmware --dry-run
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: ./release-artifacts/
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        
+        # Move all binaries to release-assets directory
+        find release-artifacts -name "valhalla-*" -type f -exec cp {} release-assets/ \;
+        
+        # Create archive with additional files
+        VERSION=${{ steps.version.outputs.VERSION }}
+        
+        # Create a release info file
+        cat > release-assets/RELEASE_INFO.txt << EOF
+        Valhalla ${VERSION}
+        
+        Hypervisor Infrastructure Discovery and IaC Generation Tool
+        
+        Built on: $(date -u)
+        Commit: ${GITHUB_SHA::8}
+        
+        Files in this release:
+        - Linux AMD64: valhalla-${VERSION}-linux-amd64
+        - Linux ARM64: valhalla-${VERSION}-linux-arm64  
+        - macOS AMD64: valhalla-${VERSION}-darwin-amd64
+        - macOS ARM64 (Apple Silicon): valhalla-${VERSION}-darwin-arm64
+        - Windows AMD64: valhalla-${VERSION}-windows-amd64.exe
+        - FreeBSD AMD64: valhalla-${VERSION}-freebsd-amd64
+        
+        Each binary includes SHA256 checksum file.
+        
+        Quick Start:
+        1. Download the binary for your platform
+        2. Make it executable: chmod +x valhalla-${VERSION}-<platform>
+        3. Run: ./valhalla-${VERSION}-<platform> --help
+        
+        Documentation: https://github.com/BigChiefRick/valhalla
+        EOF
+        
+        # Copy important files
+        cp README.md release-assets/
+        cp LICENSE release-assets/
+        
+        # List all release assets
+        echo "Release assets:"
+        ls -la release-assets/
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        VERSION=${{ steps.version.outputs.VERSION }}
+        
+        # Generate changelog (customize this based on your needs)
+        cat > CHANGELOG.md << EOF
+        ## What's New in ${VERSION}
+        
+        ### ✅ Production Ready Features
+        - **VMware vSphere Discovery** - Complete infrastructure discovery
+        - **Terraform Generation** - Full HCL template generation
+        - **Pulumi Python Generation** - Complete Python program generation  
+        - **Ansible Generation** - Complete playbook generation
+        - **Multiple Output Formats** - Table, JSON, YAML, CSV support
+        
+        ### 🚀 Use Cases
+        - **Disaster Recovery Planning** - Generate deployable infrastructure templates
+        - **Infrastructure Migration** - Document and recreate environments
+        - **Compliance Documentation** - Automated infrastructure inventories
+        
+        ### 📥 Installation
+        
+        #### Linux/macOS:
+        \`\`\`bash
+        # Download for your platform
+        wget https://github.com/BigChiefRick/valhalla/releases/download/${VERSION}/valhalla-${VERSION}-linux-amd64
+        chmod +x valhalla-${VERSION}-linux-amd64
+        ./valhalla-${VERSION}-linux-amd64 --help
+        \`\`\`
+        
+        #### Windows:
+        Download \`valhalla-${VERSION}-windows-amd64.exe\` and run from Command Prompt or PowerShell.
+        
+        ### 🔍 Quick Start
+        \`\`\`bash
+        # Discover VMware infrastructure
+        export VSPHERE_SERVER="vcenter.example.com"
+        export VSPHERE_USER="administrator@vsphere.local"
+        export VSPHERE_PASSWORD="password"
+        
+        ./valhalla discover --provider vmware --output-file infrastructure.json
+        
+        # Generate Terraform templates
+        ./valhalla generate --input infrastructure.json --format terraform --output-dir ./terraform
+        \`\`\`
+        
+        ### 📋 Supported Platforms
+        - Linux (AMD64, ARM64)
+        - macOS (Intel, Apple Silicon)
+        - Windows (AMD64)
+        - FreeBSD (AMD64)
+        
+        ### 🔐 Security
+        All binaries are built with GitHub Actions and include SHA256 checksums for verification.
+        EOF
+        
+        # Set changelog as output for release notes
+        {
+          echo 'CHANGELOG<<EOF'
+          cat CHANGELOG.md
+          echo EOF
+        } >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        name: "Valhalla ${{ steps.version.outputs.VERSION }}"
+        body: ${{ steps.changelog.outputs.CHANGELOG }}
+        draft: false
+        prerelease: false
+        files: |
+          release-assets/*
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker-build:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}:latest
+          ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
+        labels: |
+          org.opencontainers.image.title=Valhalla
+          org.opencontainers.image.description=Hypervisor Infrastructure Discovery and IaC Generation Tool
+          org.opencontainers.image.version=${{ steps.version.outputs.VERSION }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.revision=${{ github.sha }}
