@@ -200,3 +200,16 @@ type Cluster struct {
 	Datacenter      string                 `json:"datacenter,omitempty" yaml:"datacenter,omitempty"`
 	Metadata        map[string]interface{} `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
+// Add these types to the end of internal/models/infrastructure.go
+
+// Datacenter represents a hypervisor datacenter
+type Datacenter struct {
+	ID       string                 `json:"id" yaml:"id"`
+	Name     string                 `json:"name" yaml:"name"`
+	Provider string                 `json:"provider" yaml:"provider"`
+	Clusters []string               `json:"clusters,omitempty" yaml:"clusters,omitempty"`
+	Hosts    []string               `json:"hosts,omitempty" yaml:"hosts,omitempty"`
+	Networks []string               `json:"networks,omitempty" yaml:"networks,omitempty"`
+	Storage  []string               `json:"datastores,omitempty" yaml:"datastores,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
