@@ -135,9 +135,9 @@ func (f *Formatter) createVMTable(vms []models.VirtualMachine) string {
 			host = "N/A"
 		}
 		
-		os := vm.OperatingSystem
-		if os == "" {
-			os = "Unknown"
+		osVal := vm.OperatingSystem
+		if osVal == "" {
+			osVal = "Unknown"
 		}
 		
 		table.Append([]string{
@@ -145,7 +145,7 @@ func (f *Formatter) createVMTable(vms []models.VirtualMachine) string {
 			vm.State,
 			strconv.Itoa(vm.CPUs),
 			strconv.FormatInt(vm.Memory, 10),
-			os,
+			osVal,
 			host,
 		})
 	}
