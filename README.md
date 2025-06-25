@@ -12,105 +12,47 @@
 
 [![Go 1.21+](https://img.shields.io/badge/Go-1.21+-00ADD8.svg)](https://golang.org/dl/)
 [![VMware vSphere](https://img.shields.io/badge/VMware-vSphere-blue.svg)]()
-[![KVM/Libvirt](https://img.shields.io/badge/KVM-Libvirt-orange.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Build Status](https://img.shields.io/badge/Build-Passing-green.svg)]()
 
 </div>
 
 ## ⚡ What Valhalla Does
 
-Valhalla bridges the gap between existing hypervisor infrastructure and modern Infrastructure as Code practices. While cloud-native IaC tools are abundant, the virtualization world has been left behind. Valhalla changes that.
+Valhalla bridges the gap between existing hypervisor infrastructure and modern Infrastructure as Code practices. Transform your VMware vSphere, Proxmox, and Nutanix environments into battle-tested IaC templates for disaster recovery and infrastructure management.
 
-- **🔍 Discover Hypervisor Infrastructure** - Connect to VMware vSphere and KVM environments to catalog existing resources
-- **⚔️ Transform to IaC Warriors** - Convert discovered VMs, networks, and storage into battle-tested Infrastructure as Code
-- **🏰 Eternal Code Halls** - Generate Terraform, Pulumi, and native templates that ensure your infrastructure lives forever
-- **🌉 Bridge Worlds** - Seamlessly move from manual VM management to automated IaC workflows
+- **🔍 Discover Hypervisor Infrastructure** - Connect to VMware vSphere environments to catalog VMs, networks, and storage
+- **⚔️ Transform to IaC Warriors** - Convert discovered infrastructure into production-ready Infrastructure as Code
+- **🏰 Multiple IaC Formats** - Generate Terraform, Pulumi, and Ansible templates
+- **🌉 Disaster Recovery Ready** - Create deployable templates for infrastructure recreation
 
 ## 🎯 Why Valhalla Exists
 
-**The Problem**: Organizations running VMware vSphere and KVM infrastructure are stuck in manual provisioning cycles while their cloud-native counterparts enjoy the benefits of Infrastructure as Code. Existing tools like Terraformer focus on cloud providers, leaving hypervisor environments behind.
+**The Problem**: Organizations running VMware vSphere and other hypervisor infrastructure struggle to maintain Infrastructure as Code practices. Manual documentation becomes outdated, and disaster recovery planning lacks automation.
 
-**The Solution**: Valhalla specifically targets hypervisor infrastructure discovery and IaC generation, filling the critical gap for organizations managing on-premises and hybrid virtualization environments.
+**The Solution**: Valhalla automatically discovers your existing hypervisor infrastructure and generates current, deployable Infrastructure as Code templates - perfect for disaster recovery, infrastructure migration, and compliance documentation.
 
-## 🏗️ Architecture Overview
+## ✅ Current Status
 
-Valhalla follows a modular, extensible architecture designed for enterprise hypervisor environments:
+**Production Ready Features:**
+- ✅ **VMware vSphere Discovery** - Full VM, network, and storage discovery
+- ✅ **Terraform Generation** - Complete HCL templates with data sources and variables
+- ✅ **Pulumi Generation** - Python and TypeScript program generation
+- ✅ **Ansible Generation** - Complete playbooks for infrastructure recreation
+- ✅ **Multiple Output Formats** - Table, JSON, YAML, CSV for discovered data
+- ✅ **Secure Authentication** - Environment variables and credential management
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                            Valhalla Core                        │
-├─────────────────────────────────────────────────────────────────┤
-│  Discovery Engine    │  Transformation Engine   │  Output       │
-│  ┌─────────────────┐ │  ┌─────────────────────┐ │  Engine       │
-│  │ vSphere Client  │ │  │ Resource Mapper     │ │  ┌──────────┐ │
-│  │ KVM/Libvirt     │ │  │ Dependency Analyzer │ │  │Terraform │ │
-│  │ API Connectors  │ │  │ Template Generator  │ │  │Pulumi    │ │
-│  └─────────────────┘ │  └─────────────────────┘ │  │Native    │ │
-│                      │                          │  └──────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## 🚀 Supported Platforms
-
-### VMware vSphere
-- **Virtual Machines** - CPU, memory, storage, network configurations
-- **Virtual Networks** - Port groups, VLANs, distributed switches
-- **Storage** - Datastores, virtual disks, storage policies
-- **Resource Pools** - CPU/memory allocation and limits
-- **vApps** - Application containers and dependencies
-
-### KVM/Libvirt
-- **Domains (VMs)** - Guest configurations and resource allocation
-- **Networks** - Virtual networks, bridges, and NAT configurations
-- **Storage Pools** - Storage backends and volume management
-- **Node Resources** - Host CPU, memory, and storage capacity
-
-## 🛠️ IaC Output Formats
-
-- **Terraform (.tf)** - HCL format with provider-specific resources
-- **Pulumi** - Multi-language support (Python, TypeScript, Go, C#)
-- **VMware vSphere Terraform Provider** - Native vSphere resources
-- **Libvirt Terraform Provider** - Native KVM/libvirt resources
-- **Custom Templates** - Organization-specific IaC patterns
-
-## 📋 Roadmap
-
-### 🎯 Phase 1: Foundation (In Progress)
-- [ ] Core architecture and CLI framework
-- [ ] VMware vSphere API connector
-- [ ] Basic VM discovery and cataloging
-- [ ] Simple Terraform template generation
-- [ ] Configuration management system
-
-### 🎯 Phase 2: KVM Integration
-- [ ] Libvirt API connector
-- [ ] KVM domain discovery
-- [ ] Network and storage discovery
-- [ ] Multi-hypervisor orchestration
-- [ ] Cross-platform resource mapping
-
-### 🎯 Phase 3: Advanced IaC Generation
-- [ ] Dependency analysis and ordering
-- [ ] Resource relationship mapping
-- [ ] Pulumi program generation
-- [ ] Custom template engine
-- [ ] Validation and testing framework
-
-### 🎯 Phase 4: Enterprise Features
-- [ ] Bulk infrastructure migration tools
-- [ ] Change detection and drift analysis
-- [ ] Integration with CI/CD pipelines
-- [ ] RBAC and multi-tenancy support
-- [ ] Disaster recovery template generation
+**In Development:**
+- 🔧 **Proxmox Support** - Provider interface ready, implementation in progress
+- 🔧 **Nutanix Support** - Provider interface ready, implementation in progress
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - Go 1.21 or higher
-- VMware vSphere environment (for vSphere discovery)
-- KVM/libvirt environment (for KVM discovery)
-- Terraform installed (for template validation)
+- Access to VMware vCenter environment
+- Git
 
 ### Installation
 
@@ -119,81 +61,294 @@ Valhalla follows a modular, extensible architecture designed for enterprise hype
 git clone https://github.com/BigChiefRick/valhalla.git
 cd valhalla
 
-# Build the project
+# Build the application
+make deps
 make build
 
 # Verify installation
 ./bin/valhalla --help
 ```
 
-### Basic Usage
+### Docker Installation
 
 ```bash
-# Discover VMware vSphere infrastructure
-valhalla discover --provider vsphere \
-  --vcenter vcenter.example.com \
-  --username admin \
+# Build Docker image
+make docker-build
+
+# Run with Docker
+docker run --rm -it valhalla:latest --help
+```
+
+## 🔧 Configuration
+
+### Environment Variables
+
+```bash
+# VMware vSphere
+export VSPHERE_SERVER="vcenter.example.com"
+export VSPHERE_USER="administrator@vsphere.local"
+export VSPHERE_PASSWORD="your-password"
+
+# Proxmox (Coming Soon)
+export PROXMOX_SERVER="proxmox.example.com"
+export PROXMOX_USER="root@pam"
+export PROXMOX_PASSWORD="your-password"
+
+# Nutanix (Coming Soon)
+export NUTANIX_SERVER="prism.example.com"
+export NUTANIX_USER="admin"
+export NUTANIX_PASSWORD="your-password"
+```
+
+### Configuration File
+
+Create `~/.valhalla.yaml`:
+
+```yaml
+debug: false
+log_format: text
+
+providers:
+  vmware:
+    server: "vcenter.example.com"
+    username: "administrator@vsphere.local"
+    insecure: true
+    datacenter: "Production DC"
+    cluster: "Production Cluster"
+
+output:
+  format: table
+  directory: ./output
+```
+
+## 📖 Usage Examples
+
+### 1. Discover VMware Infrastructure
+
+```bash
+# Interactive authentication setup
+./bin/valhalla auth vmware --server vcenter.example.com
+
+# Discover infrastructure (dry run first)
+./bin/valhalla discover --provider vmware --dry-run
+
+# Full discovery with output to file
+./bin/valhalla discover --provider vmware \
+  --datacenter "Production DC" \
+  --output-file infrastructure.json
+
+# Table format output
+./bin/valhalla discover --provider vmware \
   --datacenter "Production DC" \
   --format table
+```
 
+### 2. Generate Infrastructure as Code
+
+```bash
 # Generate Terraform templates
-valhalla generate --provider vsphere \
-  --input discovery-results.json \
-  --output terraform \
-  --output-dir ./infrastructure
+./bin/valhalla generate \
+  --input infrastructure.json \
+  --format terraform \
+  --output-dir ./terraform
 
-# Discover KVM infrastructure
-valhalla discover --provider kvm \
-  --libvirt-uri qemu+ssh://user@kvm-host/system \
-  --format json
+# Generate Pulumi Python program
+./bin/valhalla generate \
+  --input infrastructure.json \
+  --format pulumi-python \
+  --output-dir ./pulumi
 
-# Multi-hypervisor discovery
-valhalla discover \
-  --provider vsphere --vcenter vcenter.example.com \
-  --provider kvm --libvirt-uri qemu+ssh://user@kvm-host/system \
-  --output multi-hypervisor.json
+# Generate Ansible playbooks
+./bin/valhalla generate \
+  --input infrastructure.json \
+  --format ansible \
+  --output-dir ./ansible
+```
+
+### 3. Validate Generated Templates
+
+```bash
+# Validate Terraform files
+./bin/valhalla validate --path ./terraform --format terraform
+
+# Validate all files recursively
+./bin/valhalla validate --path ./output --recursive
+```
+
+## 🏗️ Generated IaC Structure
+
+### Terraform Output
+```
+terraform/
+├── provider.tf        # VMware provider configuration
+├── variables.tf       # Input variables with defaults
+├── data.tf           # Data sources for existing resources
+├── virtual_machines.tf # VM resource definitions
+└── outputs.tf        # Output values for created resources
+```
+
+### Pulumi Output
+```
+pulumi/
+├── Pulumi.yaml       # Project configuration
+├── requirements.txt  # Python dependencies
+├── __main__.py       # Main program (Python)
+└── package.json      # Node.js dependencies (TypeScript)
+```
+
+### Ansible Output
+```
+ansible/
+├── site.yml          # Main playbook
+├── inventory.yml     # Discovered hosts inventory
+├── group_vars/       # Variables and mappings
+├── tasks/            # Provider-specific tasks
+└── requirements.yml  # Ansible collections
 ```
 
 ## 🔐 Authentication
 
 ### VMware vSphere
+
 ```bash
-# Interactive authentication
-valhalla auth vsphere --vcenter vcenter.example.com
+# Interactive setup
+./bin/valhalla auth vmware --server vcenter.example.com
+
+# Test existing credentials
+./bin/valhalla auth vmware --test
 
 # Environment variables
-export VSPHERE_USER="admin@vsphere.local"
-export VSPHERE_PASSWORD="password"
 export VSPHERE_SERVER="vcenter.example.com"
-
-# Configuration file
-echo "vsphere:
-  server: vcenter.example.com
-  username: admin@vsphere.local
-  insecure: true" > ~/.valhalla.yaml
+export VSPHERE_USER="administrator@vsphere.local"
+export VSPHERE_PASSWORD="password"
 ```
 
-### KVM/Libvirt
+### Security Best Practices
+
+- Use environment variables for credentials
+- Never commit passwords to version control
+- Test with non-production environments first
+- Use service accounts with minimal required permissions
+
+## 🛠️ Development
+
+### Build from Source
+
 ```bash
-# SSH-based connection
-valhalla discover --provider kvm \
-  --libvirt-uri qemu+ssh://user@kvm-host/system
+# Development setup
+make dev-setup
 
-# Local libvirt
-valhalla discover --provider kvm \
-  --libvirt-uri qemu:///system
+# Run with live reload
+make dev
 
-# TLS connection
-valhalla discover --provider kvm \
-  --libvirt-uri qemu+tls://kvm-host/system
+# Run tests
+make test
+
+# Build for all platforms
+make build-all
 ```
+
+### Available Make Targets
+
+```bash
+make build        # Build for current platform
+make build-all    # Build for all platforms
+make test         # Run tests
+make test-coverage # Run tests with coverage
+make lint         # Run linter
+make clean        # Clean build artifacts
+make deps         # Download dependencies
+make dev          # Run with live reload
+make docker-build # Build Docker image
+```
+
+## 📊 Example Output
+
+### Discovery Results (Table Format)
+```
+=== VMWARE Infrastructure (vcenter.example.com) ===
+Datacenter: Production DC
+Cluster: Production Cluster
+Discovery Time: 2025-06-25 17:00:00
+
+Virtual Machines:
+┌─────────────────┬───────────┬─────┬─────────────┬──────────────────┬──────────────┐
+│ NAME            │ STATE     │ CPU │ MEMORY (MB) │ OS               │ HOST         │
+├─────────────────┼───────────┼─────┼─────────────┼──────────────────┼──────────────┤
+│ web-server-01   │ poweredOn │ 4   │ 8192        │ Ubuntu 20.04 LTS │ esxi-host-01 │
+│ db-server-01    │ poweredOn │ 8   │ 16384       │ CentOS 7         │ esxi-host-02 │
+│ app-server-01   │ poweredOn │ 2   │ 4096        │ Windows Server   │ esxi-host-01 │
+└─────────────────┴───────────┴─────┴─────────────┴──────────────────┴──────────────┘
+
+Networks:
+┌──────────────┬─────────────┬──────┬──────────┬──────┐
+│ NAME         │ TYPE        │ VLAN │ VSWITCH  │ DHCP │
+├──────────────┼─────────────┼──────┼──────────┼──────┤
+│ VM Network   │ standard    │ N/A  │ vSwitch0 │ No   │
+│ DMZ Network  │ distributed │ 100  │ N/A      │ Yes  │
+└──────────────┴─────────────┴──────┴──────────┴──────┘
+
+Total Resources: 15
+```
+
+### Generated Terraform Example
+```hcl
+resource "vsphere_virtual_machine" "web_server_01" {
+  name             = "web-server-01"
+  resource_pool_id = data.vsphere_compute_cluster.cluster.resource_pool_id
+  datastore_id     = data.vsphere_datastore.datastore1.id
+  
+  num_cpus = 4
+  memory   = 8192
+  guest_id = "ubuntu64Guest"
+  firmware = "bios"
+  
+  network_interface {
+    network_id   = data.vsphere_network.vm_network.id
+    adapter_type = "vmxnet3"
+  }
+  
+  disk {
+    label            = "disk0"
+    size             = 50
+    thin_provisioned = true
+    datastore_id     = data.vsphere_datastore.datastore1.id
+  }
+}
+```
+
+## 🗺️ Roadmap
+
+### Version 1.1 (Next Release)
+- [ ] Enhanced VM property discovery (resource pools, folders)
+- [ ] Advanced filtering options
+- [ ] Template and OVA discovery
+- [ ] Cluster and host information
+
+### Version 1.2 (Proxmox Support)
+- [ ] Proxmox VE API integration
+- [ ] Container discovery (LXC)
+- [ ] Proxmox-specific IaC generation
+- [ ] Multi-node cluster support
+
+### Version 1.3 (Nutanix Support)
+- [ ] Nutanix Prism API integration
+- [ ] Category and policy discovery
+- [ ] Nutanix-specific templates
+- [ ] AHV virtual machine support
+
+### Version 2.0 (Advanced Features)
+- [ ] Web interface for discovery and generation
+- [ ] CI/CD pipeline integration
+- [ ] Change detection and drift analysis
+- [ ] Incremental discovery and caching
+- [ ] Cross-platform migration templates
 
 ## 🤝 Contributing
 
-Valhalla is built for the hypervisor community, by the hypervisor community. We welcome contributions from infrastructure engineers, DevOps practitioners, and anyone working with virtualization technology.
+We welcome contributions from infrastructure engineers, DevOps practitioners, and anyone working with virtualization technology.
 
-### Development Setup
-
+### Getting Started
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature`
 3. Make your changes and test: `make test`
@@ -201,28 +356,65 @@ Valhalla is built for the hypervisor community, by the hypervisor community. We 
 5. Push: `git push origin feature/your-feature`
 6. Create a Pull Request
 
-### Areas of Contribution
-
-- **Hypervisor Connectors** - Additional virtualization platform support
-- **IaC Generators** - New template formats and patterns
-- **Resource Discovery** - Enhanced resource type coverage
+### Areas for Contribution
+- **Hypervisor Providers** - Additional platform support (Hyper-V, KVM)
+- **IaC Generators** - New template formats and optimizations
 - **Testing** - Integration tests with real hypervisor environments
-- **Documentation** - User guides and API documentation
+- **Documentation** - User guides and tutorials
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**Build Failures:**
+```bash
+# Clean and rebuild
+make clean
+make deps
+make build
+```
+
+**Connection Issues:**
+```bash
+# Test credentials
+./bin/valhalla auth vmware --test
+
+# Enable debug logging
+./bin/valhalla --debug discover --provider vmware
+```
+
+**Discovery Issues:**
+```bash
+# Use dry run mode
+./bin/valhalla discover --provider vmware --dry-run
+
+# Check permissions and network connectivity
+# Ensure credentials have read access to vCenter
+```
+
+### Debug Mode
+```bash
+# Enable detailed logging
+./bin/valhalla --debug --log-format json discover --provider vmware
+```
 
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE) - see the LICENSE file for details.
 
-## 🛡️ Security
+## 🙏 Acknowledgments
 
-Please report security vulnerabilities through GitHub Security Advisories or email the maintainers directly.
+- VMware govmomi library for vSphere API access
+- Cobra CLI framework for command-line interface
+- HashiCorp for Terraform ecosystem inspiration
+- The entire Infrastructure as Code community
 
 ## 📞 Support
 
-- **📚 Documentation**: [Wiki](https://github.com/BigChiefRick/valhalla/wiki)
+- **📚 Documentation**: [GitHub Wiki](https://github.com/BigChiefRick/valhalla/wiki)
 - **🐛 Issues**: [GitHub Issues](https://github.com/BigChiefRick/valhalla/issues)
 - **💬 Discussions**: [GitHub Discussions](https://github.com/BigChiefRick/valhalla/discussions)
-- **💼 Enterprise Support**: Contact the maintainers for commercial support options
+- **💼 Enterprise Support**: Contact maintainers for commercial support options
 
 ---
 
@@ -234,4 +426,42 @@ Please report security vulnerabilities through GitHub Security Advisories or ema
 
 *Built with ❤️ for the hypervisor community*
 
+**Ready for disaster recovery. Ready for the future.**
+
 </div>
+
+## 🚀 Real-World Use Cases
+
+### Disaster Recovery Planning
+```bash
+# Discover production environment
+./bin/valhalla discover --provider vmware --datacenter "Production" --output-file prod-backup.json
+
+# Generate recovery templates
+./bin/valhalla generate --input prod-backup.json --format terraform --output-dir ./dr-terraform
+./bin/valhalla generate --input prod-backup.json --format ansible --output-dir ./dr-ansible
+
+# Now you have infrastructure-as-code for complete environment recreation
+```
+
+### Infrastructure Migration
+```bash
+# Document current state
+./bin/valhalla discover --provider vmware --output-file current-state.json
+
+# Generate templates for new environment
+./bin/valhalla generate --input current-state.json --format pulumi-python --output-dir ./migration
+```
+
+### Compliance and Documentation
+```bash
+# Generate current infrastructure documentation
+./bin/valhalla discover --provider vmware --format json > infrastructure-$(date +%Y%m%d).json
+
+# Create human-readable reports
+./bin/valhalla discover --provider vmware --format table > infrastructure-report.txt
+```
+
+---
+
+**Version**: 1.0.0 ✅ **Status**: Production Ready for VMware vSphere
