@@ -1,0 +1,31 @@
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+
+linters:
+  enable:
+    - gofmt
+    - goimports
+    - golint
+    - govet
+    - errcheck
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+    - gosec
+    - gocritic
+
+linters-settings:
+  golint:
+    min-confidence: 0.8
+  gosec:
+    severity: "low"
+    confidence: "low"
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
