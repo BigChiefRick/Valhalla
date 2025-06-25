@@ -1,251 +1,159 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"valhalla/internal/config"
-	"valhalla/internal/discovery"
 	"valhalla/internal/logger"
-	"valhalla/internal/models"
-	"valhalla/internal/output"
+	"valhalla/internal/validation"
 )
 
-// DiscoverOptions holds options for the discover command
-type DiscoverOptions struct {
-	Providers    []string
-	OutputFormat string
-	OutputFile   string
-	Datacenter   string
-	Cluster      string
-	Node         string
-	Concurrent   int
-	Timeout      time.Duration
-	DryRun       bool
+// ValidateOptions holds options for the validate command
+type ValidateOptions struct {
+	Path      string
+	Format    string
+	Recursive bool
+	Fix       bool
+	Strict    bool
 }
 
-// NewDiscoverCmd creates the discover command
-func NewDiscoverCmd(log *logger.Logger, cfg *config.Config) *cobra.Command {
-	opts := &DiscoverOptions{}
+// NewValidateCmd creates the validate command
+func NewValidateCmd(log *logger.Logger, cfg *config.Config) *cobra.Command {
+	opts := &ValidateOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "discover",
-		Short: "Discover infrastructure from hypervisor environments",
-		Long: `Discover and catalog infrastructure resources from VMware vCenter, Proxmox, and Nutanix environments.
+		Use:   "validate",
+		Short: "Validate generated Infrastructure as Code templates",
+		Long: `Validate Infrastructure as Code templates for syntax, best practices, and compatibility.
+
+Supports validation of:
+- Terraform HCL files (.tf)
+- Pulumi programs
+- Ansible playbooks
+- Discovery result files
 
 Examples:
-  # Discover VMware infrastructure
-  valhalla discover --provider vmware --datacenter "Production DC"
+  # Validate Terraform files in a directory
+  valhalla validate --path ./terraform --format terraform
   
-  # Discover Proxmox infrastructure
-  valhalla discover --provider proxmox --node "pve-01"
+  # Validate discovery results
+  valhalla validate --path discovery.json --format json
   
-  # Discover all supported providers
-  valhalla discover --provider vmware,proxmox,nutanix
-  
-  # Save results to file
-  valhalla discover --provider vmware --output-file infrastructure.json`,
+  # Validate recursively with fixes
+  valhalla validate --path ./output --recursive --fix`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDiscover(log, cfg, opts)
+			if len(args) > 0 {
+				opts.Path = args[0]
+			}
+			return runValidate(log, cfg, opts)
 		},
 	}
 
 	// Add flags
-	cmd.Flags().StringSliceVarP(&opts.Providers, "provider", "p", []string{}, "Providers to discover (vmware, proxmox, nutanix)")
-	cmd.Flags().StringVarP(&opts.OutputFormat, "format", "f", "table", "Output format (table, json, yaml)")
-	cmd.Flags().StringVarP(&opts.OutputFile, "output-file", "o", "", "Output file path")
-	cmd.Flags().StringVar(&opts.Datacenter, "datacenter", "", "VMware datacenter to discover")
-	cmd.Flags().StringVar(&opts.Cluster, "cluster", "", "Cluster to discover")
-	cmd.Flags().StringVar(&opts.Node, "node", "", "Proxmox node to discover")
-	cmd.Flags().IntVar(&opts.Concurrent, "concurrent", 10, "Number of concurrent discovery operations")
-	cmd.Flags().DurationVar(&opts.Timeout, "timeout", 5*time.Minute, "Discovery timeout")
-	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Perform a dry run without making API calls")
-
-	// Mark required flags
-	cmd.MarkFlagRequired("provider")
+	cmd.Flags().StringVarP(&opts.Path, "path", "p", ".", "Path to validate (file or directory)")
+	cmd.Flags().StringVarP(&opts.Format, "format", "f", "auto", "Format to validate (auto, terraform, pulumi, ansible, json)")
+	cmd.Flags().BoolVarP(&opts.Recursive, "recursive", "r", false, "Validate recursively")
+	cmd.Flags().BoolVar(&opts.Fix, "fix", false, "Attempt to fix validation issues")
+	cmd.Flags().BoolVar(&opts.Strict, "strict", false, "Use strict validation rules")
 
 	return cmd
 }
 
-// runDiscover executes the discovery process
-func runDiscover(log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) error {
-	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
-	defer cancel()
+// runValidate executes the validation process
+func runValidate(log *logger.Logger, cfg *config.Config, opts *ValidateOptions) error {
+	log.StartOperation("Validation", "path", opts.Path, "format", opts.Format)
 
-	log.StartOperation("Infrastructure discovery", "providers", opts.Providers)
-
-	// Validate configuration
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("configuration validation failed: %w", err)
+	// Check if path exists
+	if _, err := os.Stat(opts.Path); os.IsNotExist(err) {
+		return fmt.Errorf("path does not exist: %s", opts.Path)
 	}
 
-	// Initialize discovery engine
-	engine := discovery.NewEngine(log, cfg)
-
-	// Aggregate results from all providers
-	var allResults []*models.Infrastructure
-
-	// Discover from each provider
-	for _, provider := range opts.Providers {
-		providerLog := log.WithProvider(provider)
-		
-		if opts.DryRun {
-			providerLog.Info("Dry run mode - skipping actual discovery")
-			continue
-		}
-
-		providerLog.StartOperation("Provider discovery")
-
-		switch strings.ToLower(provider) {
-		case "vmware", "vsphere":
-			results, err := discoverVMware(ctx, engine, providerLog, cfg, opts)
-			if err != nil {
-				providerLog.FailOperation("VMware discovery", err)
-				return err
-			}
-			allResults = append(allResults, results...)
-
-		case "proxmox":
-			results, err := discoverProxmox(ctx, engine, providerLog, cfg, opts)
-			if err != nil {
-				providerLog.FailOperation("Proxmox discovery", err)
-				return err
-			}
-			allResults = append(allResults, results...)
-
-		case "nutanix":
-			results, err := discoverNutanix(ctx, engine, providerLog, cfg, opts)
-			if err != nil {
-				providerLog.FailOperation("Nutanix discovery", err)
-				return err
-			}
-			allResults = append(allResults, results...)
-
-		default:
-			return fmt.Errorf("unsupported provider: %s", provider)
-		}
-
-		providerLog.CompleteOperation("Provider discovery")
-	}
-
-	// Output results
-	if err := outputResults(log, opts, allResults); err != nil {
-		return fmt.Errorf("failed to output results: %w", err)
-	}
-
-	log.CompleteOperation("Infrastructure discovery", 
-		"total_resources", getTotalResourceCount(allResults),
-		"providers", len(opts.Providers))
-
-	return nil
-}
-
-// getTotalResourceCount calculates total number of resources discovered
-func getTotalResourceCount(results []*models.Infrastructure) int {
-	total := 0
-	for _, infra := range results {
-		total += len(infra.VirtualMachines)
-		total += len(infra.Networks)
-		total += len(infra.Storage)
-		total += len(infra.ResourcePools)
-	}
-	return total
-}
-
-// discoverVMware discovers VMware infrastructure
-func discoverVMware(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) ([]*models.Infrastructure, error) {
-	vmwareConfig := cfg.GetVMwareConfig()
-	
-	// Validate VMware configuration
-	if vmwareConfig.Server == "" {
-		return nil, fmt.Errorf("VMware server not configured")
-	}
-
-	// Override datacenter if specified
-	if opts.Datacenter != "" {
-		vmwareConfig.Datacenter = opts.Datacenter
-	}
-	if opts.Cluster != "" {
-		vmwareConfig.Cluster = opts.Cluster
-	}
-
-	log.Info("Connecting to VMware vCenter", "server", vmwareConfig.Server, "datacenter", vmwareConfig.Datacenter)
-
-	return engine.DiscoverVMware(ctx, vmwareConfig)
-}
-
-// discoverProxmox discovers Proxmox infrastructure
-func discoverProxmox(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) ([]*models.Infrastructure, error) {
-	proxmoxConfig := cfg.GetProxmoxConfig()
-	
-	// Validate Proxmox configuration
-	if proxmoxConfig.Server == "" {
-		return nil, fmt.Errorf("Proxmox server not configured")
-	}
-
-	// Override node if specified
-	if opts.Node != "" {
-		proxmoxConfig.Node = opts.Node
-	}
-
-	log.Info("Connecting to Proxmox", "server", proxmoxConfig.Server, "node", proxmoxConfig.Node)
-
-	return engine.DiscoverProxmox(ctx, proxmoxConfig)
-}
-
-// discoverNutanix discovers Nutanix infrastructure
-func discoverNutanix(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) ([]*models.Infrastructure, error) {
-	nutanixConfig := cfg.GetNutanixConfig()
-	
-	// Validate Nutanix configuration
-	if nutanixConfig.Server == "" {
-		return nil, fmt.Errorf("Nutanix server not configured")
-	}
-
-	// Override cluster if specified
-	if opts.Cluster != "" {
-		nutanixConfig.Cluster = opts.Cluster
-	}
-
-	log.Info("Connecting to Nutanix", "server", nutanixConfig.Server, "cluster", nutanixConfig.Cluster)
-
-	return engine.DiscoverNutanix(ctx, nutanixConfig)
-}
-
-// outputResults outputs discovery results in the specified format
-func outputResults(log *logger.Logger, opts *DiscoverOptions, results []*models.Infrastructure) error {
-	// Create output formatter
-	formatter := output.NewFormatter(opts.OutputFormat)
-
-	// Format results
-	formattedOutput, err := formatter.Format(results)
+	// Determine if path is a file or directory
+	fileInfo, err := os.Stat(opts.Path)
 	if err != nil {
-		return fmt.Errorf("failed to format output: %w", err)
+		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
-	// Output to file or stdout
-	if opts.OutputFile != "" {
-		// Ensure output directory exists
-		dir := strings.TrimSuffix(opts.OutputFile, "/"+strings.Split(opts.OutputFile, "/")[len(strings.Split(opts.OutputFile, "/"))-1])
-		if dir != opts.OutputFile {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return fmt.Errorf("failed to create output directory: %w", err)
-			}
-		}
+	validator := validation.NewValidator(log)
 
-		// Write to file
-		if err := os.WriteFile(opts.OutputFile, formattedOutput, 0644); err != nil {
-			return fmt.Errorf("failed to write output file: %w", err)
-		}
+	var results []*validation.ValidationResult
+	var validationErr error
 
-		log.Info("Results written to file", "file", opts.OutputFile)
+	if fileInfo.IsDir() {
+		// Validate directory
+		results, validationErr = validator.ValidateDirectory(opts.Path, validation.ValidateOptions{
+			Format:    opts.Format,
+			Recursive: opts.Recursive,
+			Fix:       opts.Fix,
+			Strict:    opts.Strict,
+		})
 	} else {
-		// Write to stdout
-		fmt.Print(string(formattedOutput))
+		// Validate single file
+		result, validationErr := validator.ValidateFile(opts.Path, validation.ValidateOptions{
+			Format: opts.Format,
+			Fix:    opts.Fix,
+			Strict: opts.Strict,
+		})
+		if validationErr == nil {
+			results = []*validation.ValidationResult{result}
+		}
+	}
+
+	if validationErr != nil {
+		log.FailOperation("Validation", validationErr)
+		return fmt.Errorf("validation failed: %w", validationErr)
+	}
+
+	// Process results
+	totalIssues := 0
+	totalWarnings := 0
+	totalErrors := 0
+	totalFixed := 0
+
+	for _, result := range results {
+		if len(result.Issues) > 0 {
+			log.Info("Validation issues found", "file", result.Path, "issues", len(result.Issues))
+			
+			for _, issue := range result.Issues {
+				switch issue.Severity {
+				case "error":
+					totalErrors++
+					log.Error("Validation error", "file", result.Path, "line", issue.Line, "message", issue.Message)
+				case "warning":
+					totalWarnings++
+					log.Warn("Validation warning", "file", result.Path, "line", issue.Line, "message", issue.Message)
+				}
+				
+				if issue.Fixed {
+					totalFixed++
+				}
+			}
+		} else {
+			log.Info("Validation passed", "file", result.Path)
+		}
+		
+		totalIssues += len(result.Issues)
+	}
+
+	// Summary
+	if totalIssues == 0 {
+		log.Info("All validations passed", "files_validated", len(results))
+	} else {
+		log.Info("Validation summary", 
+			"files_validated", len(results),
+			"total_issues", totalIssues,
+			"errors", totalErrors,
+			"warnings", totalWarnings,
+			"fixed", totalFixed)
+	}
+
+	log.CompleteOperation("Validation", "files_validated", len(results), "issues_found", totalIssues)
+
+	// Return error if there were validation errors (not warnings)
+	if totalErrors > 0 {
+		return fmt.Errorf("validation failed with %d errors", totalErrors)
 	}
 
 	return nil
