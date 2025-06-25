@@ -102,7 +102,7 @@ func runDiscover(log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) 
 
 		switch strings.ToLower(provider) {
 		case "vmware", "vsphere":
-			results, err := opts.discoverVMware(ctx, engine, providerLog, cfg)
+			results, err := discoverVMware(ctx, engine, providerLog, cfg, opts)
 			if err != nil {
 				providerLog.FailOperation("VMware discovery", err)
 				return err
@@ -110,7 +110,7 @@ func runDiscover(log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) 
 			allResults = append(allResults, results...)
 
 		case "proxmox":
-			results, err := opts.discoverProxmox(ctx, engine, providerLog, cfg)
+			results, err := discoverProxmox(ctx, engine, providerLog, cfg, opts)
 			if err != nil {
 				providerLog.FailOperation("Proxmox discovery", err)
 				return err
@@ -118,7 +118,7 @@ func runDiscover(log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) 
 			allResults = append(allResults, results...)
 
 		case "nutanix":
-			results, err := opts.discoverNutanix(ctx, engine, providerLog, cfg)
+			results, err := discoverNutanix(ctx, engine, providerLog, cfg, opts)
 			if err != nil {
 				providerLog.FailOperation("Nutanix discovery", err)
 				return err
@@ -157,7 +157,7 @@ func getTotalResourceCount(results []*models.Infrastructure) int {
 }
 
 // discoverVMware discovers VMware infrastructure
-func (opts *DiscoverOptions) discoverVMware(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config) ([]*models.Infrastructure, error) {
+func discoverVMware(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) ([]*models.Infrastructure, error) {
 	vmwareConfig := cfg.GetVMwareConfig()
 	
 	// Validate VMware configuration
@@ -179,7 +179,7 @@ func (opts *DiscoverOptions) discoverVMware(ctx context.Context, engine *discove
 }
 
 // discoverProxmox discovers Proxmox infrastructure
-func (opts *DiscoverOptions) discoverProxmox(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config) ([]*models.Infrastructure, error) {
+func discoverProxmox(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) ([]*models.Infrastructure, error) {
 	proxmoxConfig := cfg.GetProxmoxConfig()
 	
 	// Validate Proxmox configuration
@@ -198,7 +198,7 @@ func (opts *DiscoverOptions) discoverProxmox(ctx context.Context, engine *discov
 }
 
 // discoverNutanix discovers Nutanix infrastructure
-func (opts *DiscoverOptions) discoverNutanix(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config) ([]*models.Infrastructure, error) {
+func discoverNutanix(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) ([]*models.Infrastructure, error) {
 	nutanixConfig := cfg.GetNutanixConfig()
 	
 	// Validate Nutanix configuration
