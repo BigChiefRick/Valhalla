@@ -206,3 +206,6 @@ help:
 	@echo "  make build VERSION=1.0.0"
 	@echo "  make build-all VERSION=1.0.0"
 	@echo "  make build GOOS=linux GOARCH=amd64"
+	@echo ""
+	@echo "Prerequisites:"
+	@echo "  Go 1.18+ is required"
