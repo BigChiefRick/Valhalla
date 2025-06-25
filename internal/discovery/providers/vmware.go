@@ -15,6 +15,7 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
+	"github.com/vmware/govmomi/vim25/types"
 
 	"valhalla/internal/config"
 	"valhalla/internal/logger"
@@ -233,6 +234,12 @@ func (p *vmwareProvider) DiscoverVMs(ctx context.Context, filters VMDiscoveryFil
 			vmModel.OperatingSystem = moVM.Guest.GuestFullName
 		}
 
+		// Extract basic disk and network info from config
+		if moVM.Config != nil && moVM.Config.Hardware.Device != nil {
+			vmModel.Disks = p.extractBasicDisks(moVM.Config.Hardware.Device)
+			vmModel.NetworkCards = p.extractBasicNetworkCards(moVM.Config.Hardware.Device)
+		}
+
 		// Apply filters
 		if p.vmMatchesFilters(vmModel, filters) {
 			vmList = append(vmList, vmModel)
@@ -264,6 +271,101 @@ func (p *vmwareProvider) vmMatchesFilters(vm models.VirtualMachine, filters VMDi
 	}
 
 	return true
+}
+
+// extractBasicDisks extracts basic disk information from VM hardware devices
+func (p *vmwareProvider) extractBasicDisks(devices []types.BaseVirtualDevice) []models.Disk {
+	var disks []models.Disk
+
+	for _, device := range devices {
+		if disk, ok := device.(*types.VirtualDisk); ok {
+			diskModel := models.Disk{
+				ID:   fmt.Sprintf("%d", disk.Key),
+				Size: disk.CapacityInKB / 1024 / 1024, // Convert to GB
+				Type: "unknown",
+			}
+
+			// Try to get basic backing information
+			if backing := disk.Backing; backing != nil {
+				switch b := backing.(type) {
+				case *types.VirtualDiskFlatVer2BackingInfo:
+					diskModel.Path = b.FileName
+					if b.ThinProvisioned != nil && *b.ThinProvisioned {
+						diskModel.Type = "thin"
+					} else {
+						diskModel.Type = "thick"
+					}
+					if b.Datastore != nil {
+						diskModel.Datastore = b.Datastore.Value
+					}
+				case *types.VirtualDiskSparseVer2BackingInfo:
+					diskModel.Path = b.FileName
+					diskModel.Type = "sparse"
+				}
+			}
+
+			// Set default datastore if none found
+			if diskModel.Datastore == "" {
+				diskModel.Datastore = "datastore1"
+			}
+
+			disks = append(disks, diskModel)
+		}
+	}
+
+	return disks
+}
+
+// extractBasicNetworkCards extracts basic network card information
+func (p *vmwareProvider) extractBasicNetworkCards(devices []types.BaseVirtualDevice) []models.NetworkCard {
+	var networkCards []models.NetworkCard
+
+	for _, device := range devices {
+		if nic, ok := device.(types.BaseVirtualEthernetCard); ok {
+			card := models.NetworkCard{
+				ID:           fmt.Sprintf("%d", nic.GetVirtualEthernetCard().Key),
+				Connected:    nic.GetVirtualEthernetCard().Connectable.Connected,
+				StartConnect: nic.GetVirtualEthernetCard().Connectable.StartConnected,
+				Type:         "vmxnet3", // Default
+				Network:      "VM Network", // Default
+			}
+
+			// Get MAC address
+			if mac := nic.GetVirtualEthernetCard().MacAddress; mac != "" {
+				card.MACAddress = mac
+			}
+
+			// Get network adapter type
+			switch nic.(type) {
+			case *types.VirtualVmxnet3:
+				card.Type = "vmxnet3"
+			case *types.VirtualE1000:
+				card.Type = "e1000"
+			case *types.VirtualE1000e:
+				card.Type = "e1000e"
+			case *types.VirtualPCNet32:
+				card.Type = "pcnet32"
+			default:
+				card.Type = "vmxnet3"
+			}
+
+			// Try to get network backing
+			if backing := nic.GetVirtualEthernetCard().Backing; backing != nil {
+				switch b := backing.(type) {
+				case *types.VirtualEthernetCardNetworkBackingInfo:
+					card.Network = b.DeviceName
+				case *types.VirtualEthernetCardDistributedVirtualPortBackingInfo:
+					if b.Port.PortgroupKey != "" {
+						card.Network = b.Port.PortgroupKey
+					}
+				}
+			}
+
+			networkCards = append(networkCards, card)
+		}
+	}
+
+	return networkCards
 }
 
 // DiscoverNetworks discovers network configurations
