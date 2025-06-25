@@ -12,6 +12,7 @@ import (
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -38,7 +39,7 @@ func NewVMwareProvider(log *logger.Logger) VMwareProvider {
 	}
 }
 
-// Connect establishes connection to vCenter
+// Connect establishes connection to vCenter with VMware-specific configuration
 func (p *vmwareProvider) Connect(ctx context.Context, cfg config.VMwareConfig) error {
 	p.config = cfg
 	
@@ -66,7 +67,7 @@ func (p *vmwareProvider) Connect(ctx context.Context, cfg config.VMwareConfig) e
 	// Create govmomi client
 	p.client = &govmomi.Client{
 		Client:         vimClient,
-		SessionManager: object.NewSessionManager(vimClient),
+		SessionManager: session.NewManager(vimClient),
 	}
 
 	// Login to vCenter
@@ -266,8 +267,9 @@ func (p *vmwareProvider) convertVMToModel(moVM mo.VirtualMachine) models.Virtual
 			ChangeVersion: moVM.Config.ChangeVersion,
 		}
 		
-		if moVM.Config.Modified != nil {
-			vm.Config.Modified = *moVM.Config.Modified
+		// Handle Modified time safely
+		if !moVM.Config.Modified.IsZero() {
+			vm.Config.Modified = moVM.Config.Modified
 		}
 
 		vm.Hardware = models.HardwareInfo{
@@ -299,7 +301,7 @@ func (p *vmwareProvider) convertVMToModel(moVM mo.VirtualMachine) models.Virtual
 	}
 
 	// Summary information
-	if moVM.Summary.Config != nil {
+	if moVM.Summary.Config.GuestFullName != "" {
 		if vm.OperatingSystem == "" {
 			vm.OperatingSystem = moVM.Summary.Config.GuestFullName
 		}
@@ -345,7 +347,11 @@ func (p *vmwareProvider) extractDisks(devices []types.BaseVirtualDevice) []model
 				switch b := backing.(type) {
 				case *types.VirtualDiskFlatVer2BackingInfo:
 					diskModel.Path = b.FileName
-					diskModel.Type = string(b.ThinProvisioned)
+					if b.ThinProvisioned != nil && *b.ThinProvisioned {
+						diskModel.Type = "thin"
+					} else {
+						diskModel.Type = "thick"
+					}
 					if b.Datastore != nil {
 						diskModel.Datastore = b.Datastore.Value
 					}
@@ -358,7 +364,9 @@ func (p *vmwareProvider) extractDisks(devices []types.BaseVirtualDevice) []model
 			// Get controller information
 			if controllerKey := disk.ControllerKey; controllerKey != 0 {
 				diskModel.Controller = fmt.Sprintf("%d", controllerKey)
-				diskModel.Unit = int(disk.UnitNumber)
+				if disk.UnitNumber != nil {
+					diskModel.Unit = int(*disk.UnitNumber)
+				}
 			}
 
 			disks = append(disks, diskModel)
@@ -578,25 +586,23 @@ func (p *vmwareProvider) DiscoverResourcePools(ctx context.Context) ([]models.Re
 			continue
 		}
 
-		if moRP.Config != nil {
-			// CPU allocation
-			if moRP.Config.CpuAllocation != nil {
-				rp.CPU = models.ResourceAllocation{
-					Reservation: moRP.Config.CpuAllocation.Reservation,
-					Limit:       moRP.Config.CpuAllocation.Limit,
-					Shares:      string(moRP.Config.CpuAllocation.Shares.Level),
-					SharesValue: moRP.Config.CpuAllocation.Shares.Shares,
-				}
+		// Handle config safely
+		if moRP.Config.CpuAllocation != nil {
+			rp.CPU = models.ResourceAllocation{
+				Reservation: moRP.Config.CpuAllocation.Reservation,
+				Limit:       moRP.Config.CpuAllocation.Limit,
+				Shares:      string(moRP.Config.CpuAllocation.Shares.Level),
+				SharesValue: moRP.Config.CpuAllocation.Shares.Shares,
 			}
+		}
 
-			// Memory allocation
-			if moRP.Config.MemoryAllocation != nil {
-				rp.Memory = models.ResourceAllocation{
-					Reservation: moRP.Config.MemoryAllocation.Reservation,
-					Limit:       moRP.Config.MemoryAllocation.Limit,
-					Shares:      string(moRP.Config.MemoryAllocation.Shares.Level),
-					SharesValue: moRP.Config.MemoryAllocation.Shares.Shares,
-				}
+		// Memory allocation
+		if moRP.Config.MemoryAllocation != nil {
+			rp.Memory = models.ResourceAllocation{
+				Reservation: moRP.Config.MemoryAllocation.Reservation,
+				Limit:       moRP.Config.MemoryAllocation.Limit,
+				Shares:      string(moRP.Config.MemoryAllocation.Shares.Level),
+				SharesValue: moRP.Config.MemoryAllocation.Shares.Shares,
 			}
 		}
 
@@ -648,7 +654,7 @@ func (p *vmwareProvider) DiscoverTemplates(ctx context.Context) ([]models.Templa
 			Metadata: make(map[string]interface{}),
 		}
 
-		if moVM.Summary.Config != nil {
+		if moVM.Summary.Config.GuestFullName != "" {
 			template.OperatingSystem = moVM.Summary.Config.GuestFullName
 		}
 
@@ -681,8 +687,10 @@ func (p *vmwareProvider) DiscoverDatacenters(ctx context.Context) ([]models.Data
 	var datacenterList []models.Datacenter
 	for _, dc := range dcs {
 		datacenter := models.Datacenter{
-			ID:   dc.Reference().Value,
-			Name: dc.Name(),
+			ID:       dc.Reference().Value,
+			Name:     dc.Name(),
+			Provider: "vmware",
+			Metadata: make(map[string]interface{}),
 		}
 		datacenterList = append(datacenterList, datacenter)
 	}
