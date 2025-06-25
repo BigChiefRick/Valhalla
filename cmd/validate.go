@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"valhalla/internal/config"
@@ -11,8 +10,8 @@ import (
 	"valhalla/internal/validation"
 )
 
-// ValidateOptions holds options for the validate command
-type ValidateOptions struct {
+// ValidationOptions holds options for the validate command
+type ValidationOptions struct {
 	Path      string
 	Format    string
 	Recursive bool
@@ -22,7 +21,7 @@ type ValidateOptions struct {
 
 // NewValidateCmd creates the validate command
 func NewValidateCmd(log *logger.Logger, cfg *config.Config) *cobra.Command {
-	opts := &ValidateOptions{}
+	opts := &ValidationOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "validate",
@@ -48,7 +47,7 @@ Examples:
 			if len(args) > 0 {
 				opts.Path = args[0]
 			}
-			return runValidate(log, cfg, opts)
+			return runValidation(log, cfg, opts)
 		},
 	}
 
@@ -62,8 +61,8 @@ Examples:
 	return cmd
 }
 
-// runValidate executes the validation process
-func runValidate(log *logger.Logger, cfg *config.Config, opts *ValidateOptions) error {
+// runValidation executes the validation process
+func runValidation(log *logger.Logger, cfg *config.Config, opts *ValidationOptions) error {
 	log.StartOperation("Validation", "path", opts.Path, "format", opts.Format)
 
 	// Check if path exists
