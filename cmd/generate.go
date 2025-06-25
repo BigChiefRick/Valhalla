@@ -87,7 +87,7 @@ func runGenerate(log *logger.Logger, cfg *config.Config, opts *GenerateOptions) 
 
 	log.Info("Loaded infrastructure data", 
 		"providers", getProviderCounts(infrastructures),
-		"total_resources", getTotalResourceCount(infrastructures))
+		"total_resources", len(infrastructures))
 
 	// Create generator
 	generator, err := generators.NewGenerator(opts.OutputFormat, log)
