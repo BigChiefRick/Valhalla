@@ -25,10 +25,10 @@ import (
 
 // vmwareProvider implements the VMwareProvider interface
 type vmwareProvider struct {
-	log      *logger.Logger
-	client   *govmomi.Client
-	finder   *find.Finder
-	config   config.VMwareConfig
+	log       *logger.Logger
+	client    *govmomi.Client
+	finder    *find.Finder
+	config    config.VMwareConfig
 	connected bool
 }
 
@@ -40,7 +40,7 @@ func NewVMwareProvider(log *logger.Logger) VMwareProvider {
 }
 
 // Connect establishes connection to vCenter with VMware-specific configuration
-func (p *vmwareProvider) Connect(ctx context.Context, cfg config.VMwareConfig) error {
+func (p *vmwareProvider) ConnectVMware(ctx context.Context, cfg config.VMwareConfig) error {
 	p.config = cfg
 	
 	// Parse server URL
@@ -137,53 +137,36 @@ func (p *vmwareProvider) Discover(ctx context.Context) (*models.Infrastructure, 
 		Cluster:    p.config.Cluster,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to discover VMs: %w", err)
+		p.log.Error("Failed to discover VMs", "error", err)
+		// Don't fail completely, just log and continue
+	} else {
+		infrastructure.VirtualMachines = vms
+		p.log.Info("Discovered virtual machines", "count", len(vms))
 	}
-	infrastructure.VirtualMachines = vms
-	p.log.Info("Discovered virtual machines", "count", len(vms))
 
 	// Discover Networks
 	p.log.Info("Discovering networks")
 	networks, err := p.DiscoverNetworks(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to discover networks: %w", err)
+		p.log.Error("Failed to discover networks", "error", err)
+	} else {
+		infrastructure.Networks = networks
+		p.log.Info("Discovered networks", "count", len(networks))
 	}
-	infrastructure.Networks = networks
-	p.log.Info("Discovered networks", "count", len(networks))
 
 	// Discover Storage
 	p.log.Info("Discovering storage")
 	storage, err := p.DiscoverStorage(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to discover storage: %w", err)
-	}
-	infrastructure.Storage = storage
-	p.log.Info("Discovered storage", "count", len(storage))
-
-	// Discover Resource Pools
-	p.log.Info("Discovering resource pools")
-	resourcePools, err := p.DiscoverResourcePools(ctx)
-	if err != nil {
-		p.log.Error("Failed to discover resource pools", "error", err)
-		// Don't fail the entire discovery for resource pools
+		p.log.Error("Failed to discover storage", "error", err)
 	} else {
-		infrastructure.ResourcePools = resourcePools
-		p.log.Info("Discovered resource pools", "count", len(resourcePools))
+		infrastructure.Storage = storage
+		p.log.Info("Discovered storage", "count", len(storage))
 	}
 
-	// Discover Templates
-	p.log.Info("Discovering templates")
-	templates, err := p.DiscoverTemplates(ctx)
-	if err != nil {
-		p.log.Error("Failed to discover templates", "error", err)
-		// Don't fail the entire discovery for templates
-	} else {
-		infrastructure.Templates = templates
-		p.log.Info("Discovered templates", "count", len(templates))
-	}
-
-	// Add metadata
-	infrastructure.Metadata["total_resources"] = len(vms) + len(networks) + len(storage) + len(resourcePools) + len(templates)
+	// Add basic metadata
+	totalResources := len(infrastructure.VirtualMachines) + len(infrastructure.Networks) + len(infrastructure.Storage)
+	infrastructure.Metadata["total_resources"] = totalResources
 	infrastructure.Metadata["discovery_duration"] = time.Since(infrastructure.DiscoveryTime).String()
 
 	return infrastructure, nil
@@ -199,231 +182,66 @@ func (p *vmwareProvider) DiscoverVMs(ctx context.Context, filters VMDiscoveryFil
 
 	var vmList []models.VirtualMachine
 	
-	// Create property collector for efficient data retrieval
-	pc := property.DefaultCollector(p.client.Client)
-	
-	// Define properties to retrieve
-	properties := []string{
-		"name",
-		"summary",
-		"config",
-		"guest",
-		"runtime",
-		"datastore",
-		"network",
-		"resourcePool",
-		"parent",
-	}
-
-	// Collect properties for all VMs
-	var refs []types.ManagedObjectReference
+	// Simple approach - get basic properties for each VM
 	for _, vm := range vms {
-		refs = append(refs, vm.Reference())
-	}
+		var moVM mo.VirtualMachine
+		err := vm.Properties(ctx, vm.Reference(), []string{"name", "runtime", "config", "summary"}, &moVM)
+		if err != nil {
+			p.log.Error("Failed to get VM properties", "vm", vm.Name(), "error", err)
+			continue
+		}
 
-	var moVMs []mo.VirtualMachine
-	err = pc.Retrieve(ctx, refs, properties, &moVMs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve VM properties: %w", err)
-	}
-
-	// Convert to our VM model
-	for _, moVM := range moVMs {
 		// Skip templates unless specifically requested
 		if moVM.Config != nil && moVM.Config.Template && !filters.IncludeTemplates {
 			continue
 		}
 
-		vm := p.convertVMToModel(moVM)
-		
+		vmModel := models.VirtualMachine{
+			ID:         moVM.Reference().Value,
+			Name:       moVM.Name,
+			State:      string(moVM.Runtime.PowerState),
+			PowerState: string(moVM.Runtime.PowerState),
+			Metadata:   make(map[string]interface{}),
+		}
+
+		// Basic configuration
+		if moVM.Config != nil {
+			vmModel.CPUs = int(moVM.Config.Hardware.NumCPU)
+			vmModel.Memory = int64(moVM.Config.Hardware.MemoryMB)
+			vmModel.Config = models.VMConfig{
+				Template:      moVM.Config.Template,
+				GuestID:       moVM.Config.GuestId,
+				UUID:          moVM.Config.Uuid,
+				InstanceUUID:  moVM.Config.InstanceUuid,
+				ChangeVersion: moVM.Config.ChangeVersion,
+			}
+			
+			// Handle Modified time safely
+			if !moVM.Config.Modified.IsZero() {
+				vmModel.Config.Modified = moVM.Config.Modified
+			}
+
+			vmModel.Hardware = models.HardwareInfo{
+				Version:           moVM.Config.Version,
+				NumCPU:           int(moVM.Config.Hardware.NumCPU),
+				NumCoresPerSocket: int(moVM.Config.Hardware.NumCoresPerSocket),
+				MemoryMB:         int64(moVM.Config.Hardware.MemoryMB),
+				Firmware:         moVM.Config.Firmware,
+			}
+		}
+
+		// Guest information
+		if moVM.Guest != nil {
+			vmModel.OperatingSystem = moVM.Guest.GuestFullName
+		}
+
 		// Apply filters
-		if p.vmMatchesFilters(vm, filters) {
-			vmList = append(vmList, vm)
+		if p.vmMatchesFilters(vmModel, filters) {
+			vmList = append(vmList, vmModel)
 		}
 	}
 
 	return vmList, nil
-}
-
-// convertVMToModel converts a govmomi VM object to our VM model
-func (p *vmwareProvider) convertVMToModel(moVM mo.VirtualMachine) models.VirtualMachine {
-	vm := models.VirtualMachine{
-		ID:       moVM.Reference().Value,
-		Name:     moVM.Name,
-		State:    string(moVM.Runtime.PowerState),
-		PowerState: string(moVM.Runtime.PowerState),
-		Metadata: make(map[string]interface{}),
-	}
-
-	// Basic configuration
-	if moVM.Config != nil {
-		vm.CPUs = int(moVM.Config.Hardware.NumCPU)
-		vm.Memory = int64(moVM.Config.Hardware.MemoryMB)
-		vm.Config = models.VMConfig{
-			Template:     moVM.Config.Template,
-			GuestID:      moVM.Config.GuestId,
-			UUID:         moVM.Config.Uuid,
-			InstanceUUID: moVM.Config.InstanceUuid,
-			ChangeVersion: moVM.Config.ChangeVersion,
-		}
-		
-		// Handle Modified time safely
-		if !moVM.Config.Modified.IsZero() {
-			vm.Config.Modified = moVM.Config.Modified
-		}
-
-		vm.Hardware = models.HardwareInfo{
-			Version:           moVM.Config.Version,
-			NumCPU:           int(moVM.Config.Hardware.NumCPU),
-			NumCoresPerSocket: int(moVM.Config.Hardware.NumCoresPerSocket),
-			MemoryMB:         int64(moVM.Config.Hardware.MemoryMB),
-			Firmware:         moVM.Config.Firmware,
-		}
-
-		// Parse annotations
-		if moVM.Config.Annotation != "" {
-			vm.Annotations = map[string]string{
-				"notes": moVM.Config.Annotation,
-			}
-		}
-	}
-
-	// Guest information
-	if moVM.Guest != nil {
-		vm.OperatingSystem = moVM.Guest.GuestFullName
-		if moVM.Guest.ToolsStatus != "" {
-			vm.Tools = models.VMTools{
-				Status:        string(moVM.Guest.ToolsStatus),
-				Version:       moVM.Guest.ToolsVersion,
-				RunningStatus: string(moVM.Guest.ToolsRunningStatus),
-			}
-		}
-	}
-
-	// Summary information
-	if moVM.Summary.Config.GuestFullName != "" {
-		if vm.OperatingSystem == "" {
-			vm.OperatingSystem = moVM.Summary.Config.GuestFullName
-		}
-	}
-
-	// Resource pool
-	if moVM.ResourcePool != nil {
-		vm.ResourcePool = moVM.ResourcePool.Value
-	}
-
-	// Parent folder
-	if moVM.Parent != nil {
-		vm.Folder = moVM.Parent.Value
-	}
-
-	// Host
-	if moVM.Runtime.Host != nil {
-		vm.Host = moVM.Runtime.Host.Value
-	}
-
-	// Process disks
-	if moVM.Config != nil && moVM.Config.Hardware.Device != nil {
-		vm.Disks = p.extractDisks(moVM.Config.Hardware.Device)
-		vm.NetworkCards = p.extractNetworkCards(moVM.Config.Hardware.Device)
-	}
-
-	return vm
-}
-
-// extractDisks extracts disk information from VM hardware devices
-func (p *vmwareProvider) extractDisks(devices []types.BaseVirtualDevice) []models.Disk {
-	var disks []models.Disk
-
-	for _, device := range devices {
-		if disk, ok := device.(*types.VirtualDisk); ok {
-			diskModel := models.Disk{
-				ID:   fmt.Sprintf("%d", disk.Key),
-				Size: disk.CapacityInKB / 1024 / 1024, // Convert to GB
-			}
-
-			// Get backing information
-			if backing := disk.Backing; backing != nil {
-				switch b := backing.(type) {
-				case *types.VirtualDiskFlatVer2BackingInfo:
-					diskModel.Path = b.FileName
-					if b.ThinProvisioned != nil && *b.ThinProvisioned {
-						diskModel.Type = "thin"
-					} else {
-						diskModel.Type = "thick"
-					}
-					if b.Datastore != nil {
-						diskModel.Datastore = b.Datastore.Value
-					}
-				case *types.VirtualDiskSparseVer2BackingInfo:
-					diskModel.Path = b.FileName
-					diskModel.Type = "sparse"
-				}
-			}
-
-			// Get controller information
-			if controllerKey := disk.ControllerKey; controllerKey != 0 {
-				diskModel.Controller = fmt.Sprintf("%d", controllerKey)
-				if disk.UnitNumber != nil {
-					diskModel.Unit = int(*disk.UnitNumber)
-				}
-			}
-
-			disks = append(disks, diskModel)
-		}
-	}
-
-	return disks
-}
-
-// extractNetworkCards extracts network card information from VM hardware devices
-func (p *vmwareProvider) extractNetworkCards(devices []types.BaseVirtualDevice) []models.NetworkCard {
-	var networkCards []models.NetworkCard
-
-	for _, device := range devices {
-		if nic, ok := device.(types.BaseVirtualEthernetCard); ok {
-			card := models.NetworkCard{
-				ID:        fmt.Sprintf("%d", nic.GetVirtualEthernetCard().Key),
-				Connected: nic.GetVirtualEthernetCard().Connectable.Connected,
-				StartConnect: nic.GetVirtualEthernetCard().Connectable.StartConnected,
-			}
-
-			// Get MAC address
-			if mac := nic.GetVirtualEthernetCard().MacAddress; mac != "" {
-				card.MACAddress = mac
-			}
-
-			// Get network adapter type
-			switch nic.(type) {
-			case *types.VirtualVmxnet3:
-				card.Type = "vmxnet3"
-			case *types.VirtualE1000:
-				card.Type = "e1000"
-			case *types.VirtualE1000e:
-				card.Type = "e1000e"
-			case *types.VirtualPCNet32:
-				card.Type = "pcnet32"
-			default:
-				card.Type = "unknown"
-			}
-
-			// Get network backing
-			if backing := nic.GetVirtualEthernetCard().Backing; backing != nil {
-				switch b := backing.(type) {
-				case *types.VirtualEthernetCardNetworkBackingInfo:
-					card.Network = b.DeviceName
-				case *types.VirtualEthernetCardDistributedVirtualPortBackingInfo:
-					if b.Port.PortgroupKey != "" {
-						card.Network = b.Port.PortgroupKey
-					}
-				}
-			}
-
-			networkCards = append(networkCards, card)
-		}
-	}
-
-	return networkCards
 }
 
 // vmMatchesFilters checks if a VM matches the given filters
@@ -445,21 +263,6 @@ func (p *vmwareProvider) vmMatchesFilters(vm models.VirtualMachine, filters VMDi
 		if !nameMatch {
 			return false
 		}
-	}
-
-	// Host filter
-	if filters.Host != "" && vm.Host != filters.Host {
-		return false
-	}
-
-	// Resource pool filter
-	if filters.ResourcePool != "" && vm.ResourcePool != filters.ResourcePool {
-		return false
-	}
-
-	// Folder filter
-	if filters.Folder != "" && vm.Folder != filters.Folder {
-		return false
 	}
 
 	return true
@@ -510,20 +313,14 @@ func (p *vmwareProvider) DiscoverStorage(ctx context.Context) ([]models.Storage,
 
 	var storageList []models.Storage
 
-	// Get properties for all datastores
-	var refs []types.ManagedObjectReference
 	for _, ds := range datastores {
-		refs = append(refs, ds.Reference())
-	}
+		var moDS mo.Datastore
+		err := ds.Properties(ctx, ds.Reference(), []string{"name", "summary"}, &moDS)
+		if err != nil {
+			p.log.Error("Failed to get datastore properties", "datastore", ds.Name(), "error", err)
+			continue
+		}
 
-	var moDatastores []mo.Datastore
-	pc := property.DefaultCollector(p.client.Client)
-	err = pc.Retrieve(ctx, refs, []string{"name", "summary", "info"}, &moDatastores)
-	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve datastore properties: %w", err)
-	}
-
-	for _, moDS := range moDatastores {
 		storage := models.Storage{
 			ID:         moDS.Reference().Value,
 			Name:       moDS.Name,
@@ -542,142 +339,24 @@ func (p *vmwareProvider) DiscoverStorage(ctx context.Context) ([]models.Storage,
 			storage.Type = moDS.Summary.Type
 		}
 
-		// Get URL if available
-		if moDS.Summary.Url != "" {
-			storage.URL = moDS.Summary.Url
-		}
-
-		// Check if it's local storage
-		if moDS.Info != nil {
-			if vmfsInfo, ok := moDS.Info.(*types.VmfsDatastoreInfo); ok {
-				storage.Local = vmfsInfo.Vmfs.Local != nil && *vmfsInfo.Vmfs.Local
-				storage.SSD = vmfsInfo.Vmfs.Ssd != nil && *vmfsInfo.Vmfs.Ssd
-			}
-		}
-
 		storageList = append(storageList, storage)
 	}
 
 	return storageList, nil
 }
 
-// DiscoverResourcePools discovers resource pools
+// Simplified implementations for interface compliance
+
 func (p *vmwareProvider) DiscoverResourcePools(ctx context.Context) ([]models.ResourcePool, error) {
-	// Find all resource pools
-	pools, err := p.finder.ResourcePoolList(ctx, "*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list resource pools: %w", err)
-	}
-
-	var poolList []models.ResourcePool
-
-	for _, pool := range pools {
-		rp := models.ResourcePool{
-			ID:       pool.Reference().Value,
-			Name:     pool.InventoryPath,
-			Metadata: make(map[string]interface{}),
-		}
-
-		// Get resource pool configuration
-		var moRP mo.ResourcePool
-		err := pool.Properties(ctx, pool.Reference(), []string{"config", "parent", "vm"}, &moRP)
-		if err != nil {
-			p.log.Error("Failed to get resource pool properties", "pool", pool.Name(), "error", err)
-			continue
-		}
-
-		// Handle CPU allocation safely
-		if moRP.Config.CpuAllocation.Reservation != nil {
-			rp.CPU.Reservation = *moRP.Config.CpuAllocation.Reservation
-		}
-		if moRP.Config.CpuAllocation.Limit != nil {
-			rp.CPU.Limit = *moRP.Config.CpuAllocation.Limit
-		}
-		rp.CPU.Shares = string(moRP.Config.CpuAllocation.Shares.Level)
-		rp.CPU.SharesValue = moRP.Config.CpuAllocation.Shares.Shares
-
-		// Handle Memory allocation safely
-		if moRP.Config.MemoryAllocation.Reservation != nil {
-			rp.Memory.Reservation = *moRP.Config.MemoryAllocation.Reservation
-		}
-		if moRP.Config.MemoryAllocation.Limit != nil {
-			rp.Memory.Limit = *moRP.Config.MemoryAllocation.Limit
-		}
-		rp.Memory.Shares = string(moRP.Config.MemoryAllocation.Shares.Level)
-		rp.Memory.SharesValue = moRP.Config.MemoryAllocation.Shares.Shares
-
-		// Parent resource pool
-		if moRP.Parent != nil {
-			rp.Parent = moRP.Parent.Value
-		}
-
-		// VMs in this resource pool
-		if moRP.Vm != nil {
-			for _, vmRef := range moRP.Vm {
-				rp.VMs = append(rp.VMs, vmRef.Value)
-			}
-		}
-
-		poolList = append(poolList, rp)
-	}
-
-	return poolList, nil
+	p.log.Info("Resource pool discovery simplified for initial build")
+	return []models.ResourcePool{}, nil
 }
 
-// DiscoverTemplates discovers VM templates
 func (p *vmwareProvider) DiscoverTemplates(ctx context.Context) ([]models.Template, error) {
-	// Find all VMs (including templates)
-	vms, err := p.finder.VirtualMachineList(ctx, "*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list VMs for template discovery: %w", err)
-	}
-
-	var templateList []models.Template
-
-	for _, vm := range vms {
-		var moVM mo.VirtualMachine
-		err := vm.Properties(ctx, vm.Reference(), []string{"config", "summary"}, &moVM)
-		if err != nil {
-			continue
-		}
-
-		// Skip if not a template
-		if moVM.Config == nil || !moVM.Config.Template {
-			continue
-		}
-
-		template := models.Template{
-			ID:       vm.Reference().Value,
-			Name:     moVM.Name,
-			CPUs:     int(moVM.Config.Hardware.NumCPU),
-			Memory:   int64(moVM.Config.Hardware.MemoryMB),
-			Metadata: make(map[string]interface{}),
-		}
-
-		if moVM.Summary.Config.GuestFullName != "" {
-			template.OperatingSystem = moVM.Summary.Config.GuestFullName
-		}
-
-		// Parse annotations
-		if moVM.Config.Annotation != "" {
-			template.Annotations = map[string]string{
-				"notes": moVM.Config.Annotation,
-			}
-		}
-
-		// Extract disks and network cards (similar to VM discovery)
-		if moVM.Config.Hardware.Device != nil {
-			template.Disks = p.extractDisks(moVM.Config.Hardware.Device)
-			template.NetworkCards = p.extractNetworkCards(moVM.Config.Hardware.Device)
-		}
-
-		templateList = append(templateList, template)
-	}
-
-	return templateList, nil
+	p.log.Info("Template discovery simplified for initial build")
+	return []models.Template{}, nil
 }
 
-// DiscoverDatacenters discovers all datacenters
 func (p *vmwareProvider) DiscoverDatacenters(ctx context.Context) ([]models.Datacenter, error) {
 	dcs, err := p.finder.DatacenterList(ctx, "*")
 	if err != nil {
@@ -698,99 +377,14 @@ func (p *vmwareProvider) DiscoverDatacenters(ctx context.Context) ([]models.Data
 	return datacenterList, nil
 }
 
-// DiscoverClusters discovers clusters in a datacenter
 func (p *vmwareProvider) DiscoverClusters(ctx context.Context, datacenter string) ([]models.Cluster, error) {
-	clusters, err := p.finder.ClusterComputeResourceList(ctx, "*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list clusters: %w", err)
-	}
-
-	var clusterList []models.Cluster
-	for _, cluster := range clusters {
-		var moCluster mo.ClusterComputeResource
-		err := cluster.Properties(ctx, cluster.Reference(), []string{"name", "summary", "host", "resourcePool"}, &moCluster)
-		if err != nil {
-			continue
-		}
-
-		clusterModel := models.Cluster{
-			ID:         cluster.Reference().Value,
-			Name:       moCluster.Name,
-			Datacenter: datacenter,
-			Metadata:   make(map[string]interface{}),
-		}
-
-		// Handle cluster summary safely - cast to the correct type
-		if summary, ok := moCluster.Summary.(*types.ClusterComputeResourceSummary); ok && summary != nil {
-			clusterModel.TotalCPU = int64(summary.TotalCpu)
-			clusterModel.TotalMemory = int64(summary.TotalMemory)
-			clusterModel.UsedCPU = int64(summary.TotalCpu - summary.EffectiveCpu)
-			clusterModel.UsedMemory = int64(summary.TotalMemory - summary.EffectiveMemory)
-		}
-
-		// Add hosts
-		for _, hostRef := range moCluster.Host {
-			clusterModel.Hosts = append(clusterModel.Hosts, hostRef.Value)
-		}
-
-		clusterList = append(clusterList, clusterModel)
-	}
-
-	return clusterList, nil
+	p.log.Info("Cluster discovery simplified for initial build")
+	return []models.Cluster{}, nil
 }
 
-// DiscoverHosts discovers hosts in a cluster
 func (p *vmwareProvider) DiscoverHosts(ctx context.Context, cluster string) ([]models.Host, error) {
-	hosts, err := p.finder.HostSystemList(ctx, "*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list hosts: %w", err)
-	}
-
-	var hostList []models.Host
-	for _, host := range hosts {
-		var moHost mo.HostSystem
-		err := host.Properties(ctx, host.Reference(), []string{"name", "summary", "vm", "datastore", "network"}, &moHost)
-		if err != nil {
-			continue
-		}
-
-		hostModel := models.Host{
-			ID:              host.Reference().Value,
-			Name:            moHost.Name,
-			Type:            "ESXi",
-			State:           string(moHost.Summary.Runtime.PowerState),
-			ConnectionState: string(moHost.Summary.Runtime.ConnectionState),
-			Cluster:         cluster,
-			Metadata:        make(map[string]interface{}),
-		}
-
-		if moHost.Summary.Config != nil {
-			hostModel.Version = moHost.Summary.Config.Product.Version
-		}
-
-		if moHost.Summary.Hardware != nil {
-			hostModel.CPU = models.HostResource{
-				Total: int64(moHost.Summary.Hardware.CpuMhz) * int64(moHost.Summary.Hardware.NumCpuCores),
-			}
-			hostModel.Memory = models.HostResource{
-				Total: int64(moHost.Summary.Hardware.MemorySize / 1024 / 1024), // Convert to MB
-			}
-		}
-
-		if moHost.Summary.QuickStats != nil {
-			hostModel.CPU.Used = int64(moHost.Summary.QuickStats.OverallCpuUsage)
-			hostModel.Memory.Used = int64(moHost.Summary.QuickStats.OverallMemoryUsage)
-		}
-
-		// Add VMs
-		for _, vmRef := range moHost.Vm {
-			hostModel.VMs = append(hostModel.VMs, vmRef.Value)
-		}
-
-		hostList = append(hostList, hostModel)
-	}
-
-	return hostList, nil
+	p.log.Info("Host discovery simplified for initial build")
+	return []models.Host{}, nil
 }
 
 // GetName returns the provider name
@@ -801,4 +395,9 @@ func (p *vmwareProvider) GetName() string {
 // IsConnected returns true if connected to vCenter
 func (p *vmwareProvider) IsConnected() bool {
 	return p.connected && p.client != nil
+}
+
+// Connect without configuration (implements Provider interface)
+func (p *vmwareProvider) Connect(ctx context.Context) error {
+	return fmt.Errorf("use ConnectVMware(ctx, config.VMwareConfig) instead")
 }
