@@ -217,9 +217,10 @@ func outputResults(log *logger.Logger, opts *DiscoverOptions, results []*models.
 
 	// Output to file or stdout
 	if opts.OutputFile != "" {
-		// Ensure output directory exists
-		dir := strings.TrimSuffix(opts.OutputFile, "/"+strings.Split(opts.OutputFile, "/")[len(strings.Split(opts.OutputFile, "/"))-1])
-		if dir != opts.OutputFile {
+		// Simple directory creation logic
+		if strings.Contains(opts.OutputFile, "/") {
+			parts := strings.Split(opts.OutputFile, "/")
+			dir := strings.Join(parts[:len(parts)-1], "/")
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return fmt.Errorf("failed to create output directory: %w", err)
 			}
