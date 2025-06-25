@@ -7,6 +7,7 @@ require (
 	github.com/spf13/viper v1.18.2
 	github.com/vmware/govmomi v0.34.2
 	github.com/olekukonko/tablewriter v0.0.5
+	golang.org/x/term v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
