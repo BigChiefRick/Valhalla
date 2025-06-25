@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -104,7 +102,7 @@ func runDiscover(log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) 
 
 		switch strings.ToLower(provider) {
 		case "vmware", "vsphere":
-			results, err := discoverVMware(ctx, engine, providerLog, cfg, opts)
+			results, err := opts.discoverVMware(ctx, engine, providerLog, cfg)
 			if err != nil {
 				providerLog.FailOperation("VMware discovery", err)
 				return err
@@ -112,7 +110,7 @@ func runDiscover(log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) 
 			allResults = append(allResults, results...)
 
 		case "proxmox":
-			results, err := discoverProxmox(ctx, engine, providerLog, cfg, opts)
+			results, err := opts.discoverProxmox(ctx, engine, providerLog, cfg)
 			if err != nil {
 				providerLog.FailOperation("Proxmox discovery", err)
 				return err
@@ -120,7 +118,7 @@ func runDiscover(log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) 
 			allResults = append(allResults, results...)
 
 		case "nutanix":
-			results, err := discoverNutanix(ctx, engine, providerLog, cfg, opts)
+			results, err := opts.discoverNutanix(ctx, engine, providerLog, cfg)
 			if err != nil {
 				providerLog.FailOperation("Nutanix discovery", err)
 				return err
@@ -146,8 +144,20 @@ func runDiscover(log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) 
 	return nil
 }
 
+// getTotalResourceCount calculates total number of resources discovered
+func getTotalResourceCount(results []*models.Infrastructure) int {
+	total := 0
+	for _, infra := range results {
+		total += len(infra.VirtualMachines)
+		total += len(infra.Networks)
+		total += len(infra.Storage)
+		total += len(infra.ResourcePools)
+	}
+	return total
+}
+
 // discoverVMware discovers VMware infrastructure
-func discoverVMware(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) ([]*models.Infrastructure, error) {
+func (opts *DiscoverOptions) discoverVMware(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config) ([]*models.Infrastructure, error) {
 	vmwareConfig := cfg.GetVMwareConfig()
 	
 	// Validate VMware configuration
@@ -169,7 +179,7 @@ func discoverVMware(ctx context.Context, engine *discovery.Engine, log *logger.L
 }
 
 // discoverProxmox discovers Proxmox infrastructure
-func discoverProxmox(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) ([]*models.Infrastructure, error) {
+func (opts *DiscoverOptions) discoverProxmox(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config) ([]*models.Infrastructure, error) {
 	proxmoxConfig := cfg.GetProxmoxConfig()
 	
 	// Validate Proxmox configuration
@@ -188,7 +198,7 @@ func discoverProxmox(ctx context.Context, engine *discovery.Engine, log *logger.
 }
 
 // discoverNutanix discovers Nutanix infrastructure
-func discoverNutanix(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config, opts *DiscoverOptions) ([]*models.Infrastructure, error) {
+func (opts *DiscoverOptions) discoverNutanix(ctx context.Context, engine *discovery.Engine, log *logger.Logger, cfg *config.Config) ([]*models.Infrastructure, error) {
 	nutanixConfig := cfg.GetNutanixConfig()
 	
 	// Validate Nutanix configuration
@@ -220,8 +230,11 @@ func outputResults(log *logger.Logger, opts *DiscoverOptions, results []*models.
 	// Output to file or stdout
 	if opts.OutputFile != "" {
 		// Ensure output directory exists
-		if err := os.MkdirAll(filepath.Dir(opts.OutputFile), 0755); err != nil {
-			return fmt.Errorf("failed to create output directory: %w", err)
+		dir := strings.TrimSuffix(opts.OutputFile, "/"+strings.Split(opts.OutputFile, "/")[len(strings.Split(opts.OutputFile, "/"))-1])
+		if dir != opts.OutputFile {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create output directory: %w", err)
+			}
 		}
 
 		// Write to file
@@ -236,16 +249,4 @@ func outputResults(log *logger.Logger, opts *DiscoverOptions, results []*models.
 	}
 
 	return nil
-}
-
-// getTotalResourceCount calculates total number of resources discovered
-func getTotalResourceCount(results []*models.Infrastructure) int {
-	total := 0
-	for _, infra := range results {
-		total += len(infra.VirtualMachines)
-		total += len(infra.Networks)
-		total += len(infra.Storage)
-		total += len(infra.ResourcePools)
-	}
-	return total
 }
