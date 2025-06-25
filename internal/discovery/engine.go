@@ -37,7 +37,7 @@ func (e *Engine) DiscoverVMware(ctx context.Context, cfg config.VMwareConfig) ([
 	provider := providers.NewVMwareProvider(e.log)
 	
 	// Connect to vCenter
-	if err := provider.Connect(ctx, cfg); err != nil {
+	if err := provider.ConnectVMware(ctx, cfg); err != nil {
 		return nil, fmt.Errorf("failed to connect to VMware: %w", err)
 	}
 	defer provider.Disconnect()
