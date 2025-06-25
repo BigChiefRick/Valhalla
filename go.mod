@@ -1,13 +1,13 @@
 module valhalla
 
-go 1.21
+go 1.18
 
 require (
-	github.com/spf13/cobra v1.8.0
-	github.com/spf13/viper v1.18.2
-	github.com/vmware/govmomi v0.34.2
+	github.com/spf13/cobra v1.7.0
+	github.com/spf13/viper v1.16.0
+	github.com/vmware/govmomi v0.30.7
 	github.com/olekukonko/tablewriter v0.0.5
-	golang.org/x/term v0.15.0
+	golang.org/x/term v0.10.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
