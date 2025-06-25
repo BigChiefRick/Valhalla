@@ -38,7 +38,7 @@ Valhalla follows a modular, extensible architecture designed for enterprise hype
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Valhalla Core                              │
+│                            Valhalla Core                        │
 ├─────────────────────────────────────────────────────────────────┤
 │  Discovery Engine    │  Transformation Engine   │  Output       │
 │  ┌─────────────────┐ │  ┌─────────────────────┐ │  Engine       │
