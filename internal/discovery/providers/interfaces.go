@@ -30,7 +30,7 @@ type VMwareProvider interface {
 	Provider
 	
 	// Connect with VMware-specific configuration
-	Connect(ctx context.Context, cfg config.VMwareConfig) error
+	ConnectVMware(ctx context.Context, cfg config.VMwareConfig) error
 	
 	// DiscoverDatacenters discovers all datacenters
 	DiscoverDatacenters(ctx context.Context) ([]models.Datacenter, error)
@@ -61,8 +61,8 @@ type VMwareProvider interface {
 type ProxmoxProvider interface {
 	Provider
 	
-	// Connect with Proxmox-specific configuration
-	Connect(ctx context.Context, cfg config.ProxmoxConfig) error
+	// ConnectProxmox with Proxmox-specific configuration
+	ConnectProxmox(ctx context.Context, cfg config.ProxmoxConfig) error
 	
 	// DiscoverNodes discovers Proxmox nodes
 	DiscoverNodes(ctx context.Context) ([]models.Host, error)
@@ -84,8 +84,8 @@ type ProxmoxProvider interface {
 type NutanixProvider interface {
 	Provider
 	
-	// Connect with Nutanix-specific configuration
-	Connect(ctx context.Context, cfg config.NutanixConfig) error
+	// ConnectNutanix with Nutanix-specific configuration
+	ConnectNutanix(ctx context.Context, cfg config.NutanixConfig) error
 	
 	// DiscoverClusters discovers Nutanix clusters
 	DiscoverClusters(ctx context.Context) ([]models.Cluster, error)
