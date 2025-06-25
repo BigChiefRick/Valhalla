@@ -50,8 +50,6 @@ func (g *TerraformGenerator) Generate(infrastructures []*models.Infrastructure, 
 
 // generateForProvider generates Terraform files for a specific provider
 func (g *TerraformGenerator) generateForProvider(infra *models.Infrastructure, opts GenerateOptions) ([]*GenerateResult, error) {
-	var results []*GenerateResult
-
 	switch strings.ToLower(infra.Provider) {
 	case "vmware", "vsphere":
 		return g.generateVMware(infra, opts)
@@ -267,7 +265,7 @@ func (g *TerraformGenerator) generateVMwareVMs(vms []models.VirtualMachine) stri
    vm.CPUs, vm.Memory, vm.Config.GuestID, strings.ToLower(vm.Hardware.Firmware))
 
 		// Add network interfaces
-		for i, nic := range vm.NetworkCards {
+		for _, nic := range vm.NetworkCards {
 			networkResourceName := g.GenerateResourceName(nic.Network)
 			config += fmt.Sprintf(`
   network_interface {
