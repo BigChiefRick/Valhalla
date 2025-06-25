@@ -586,25 +586,25 @@ func (p *vmwareProvider) DiscoverResourcePools(ctx context.Context) ([]models.Re
 			continue
 		}
 
-		// Handle config safely
-		if moRP.Config.CpuAllocation != nil {
-			rp.CPU = models.ResourceAllocation{
-				Reservation: moRP.Config.CpuAllocation.Reservation,
-				Limit:       moRP.Config.CpuAllocation.Limit,
-				Shares:      string(moRP.Config.CpuAllocation.Shares.Level),
-				SharesValue: moRP.Config.CpuAllocation.Shares.Shares,
-			}
+		// Handle CPU allocation safely
+		if moRP.Config.CpuAllocation.Reservation != nil {
+			rp.CPU.Reservation = *moRP.Config.CpuAllocation.Reservation
 		}
+		if moRP.Config.CpuAllocation.Limit != nil {
+			rp.CPU.Limit = *moRP.Config.CpuAllocation.Limit
+		}
+		rp.CPU.Shares = string(moRP.Config.CpuAllocation.Shares.Level)
+		rp.CPU.SharesValue = moRP.Config.CpuAllocation.Shares.Shares
 
-		// Memory allocation
-		if moRP.Config.MemoryAllocation != nil {
-			rp.Memory = models.ResourceAllocation{
-				Reservation: moRP.Config.MemoryAllocation.Reservation,
-				Limit:       moRP.Config.MemoryAllocation.Limit,
-				Shares:      string(moRP.Config.MemoryAllocation.Shares.Level),
-				SharesValue: moRP.Config.MemoryAllocation.Shares.Shares,
-			}
+		// Handle Memory allocation safely
+		if moRP.Config.MemoryAllocation.Reservation != nil {
+			rp.Memory.Reservation = *moRP.Config.MemoryAllocation.Reservation
 		}
+		if moRP.Config.MemoryAllocation.Limit != nil {
+			rp.Memory.Limit = *moRP.Config.MemoryAllocation.Limit
+		}
+		rp.Memory.Shares = string(moRP.Config.MemoryAllocation.Shares.Level)
+		rp.Memory.SharesValue = moRP.Config.MemoryAllocation.Shares.Shares
 
 		// Parent resource pool
 		if moRP.Parent != nil {
@@ -720,11 +720,12 @@ func (p *vmwareProvider) DiscoverClusters(ctx context.Context, datacenter string
 			Metadata:   make(map[string]interface{}),
 		}
 
-		if moCluster.Summary != nil {
-			clusterModel.TotalCPU = int64(moCluster.Summary.TotalCpu)
-			clusterModel.TotalMemory = int64(moCluster.Summary.TotalMemory)
-			clusterModel.UsedCPU = int64(moCluster.Summary.TotalCpu - moCluster.Summary.EffectiveCpu)
-			clusterModel.UsedMemory = int64(moCluster.Summary.TotalMemory - moCluster.Summary.EffectiveMemory)
+		// Handle cluster summary safely - cast to the correct type
+		if summary, ok := moCluster.Summary.(*types.ClusterComputeResourceSummary); ok && summary != nil {
+			clusterModel.TotalCPU = int64(summary.TotalCpu)
+			clusterModel.TotalMemory = int64(summary.TotalMemory)
+			clusterModel.UsedCPU = int64(summary.TotalCpu - summary.EffectiveCpu)
+			clusterModel.UsedMemory = int64(summary.TotalMemory - summary.EffectiveMemory)
 		}
 
 		// Add hosts
@@ -800,9 +801,4 @@ func (p *vmwareProvider) GetName() string {
 // IsConnected returns true if connected to vCenter
 func (p *vmwareProvider) IsConnected() bool {
 	return p.connected && p.client != nil
-}
-
-// Connect without configuration (implements Provider interface)
-func (p *vmwareProvider) Connect(ctx context.Context) error {
-	return fmt.Errorf("use Connect(ctx, config.VMwareConfig) instead")
 }
